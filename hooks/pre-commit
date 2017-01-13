@@ -65,14 +65,20 @@ fi
 echo "${reset}"
 
 echo -ne "Checking dashboard for tslint errors..."
-if ! OUT=$(make dashboard-lint 2>&1); then
+TSLINT_BIN=dashboard/node_modules/tslint/bin/tslint
+tslint_out=$("$TSLINT_BIN" "dashboard/src/**/*.ts" \
+			   --project dashboard/src/tsconfig.json \
+			   --type-check 2>&1)
+
+if [[ -n "$tslint_out" ]]; then
     echo
-    echo "${red}${OUT}"
+    echo "${red}${tslint_out}"
     exit_code=1
 else
     echo "${green}OK"
 fi
 echo "${reset}"
+
 
 echo -ne "Checking for tsfmt errors..."
 files_with_tsfmt_errors=()
