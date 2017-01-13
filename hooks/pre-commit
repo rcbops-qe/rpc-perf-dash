@@ -1,0 +1,102 @@
+#!/bin/bash
+
+readonly reset=$(tput sgr0)
+readonly red=$(tput bold; tput setaf 1)
+readonly green=$(tput bold; tput setaf 2)
+
+exit_code=0
+
+PROJECT_ROOT=$(dirname "${BASH_SOURCE}")/../..
+cd "${PROJECT_ROOT}"
+
+
+echo -ne "Checking for files that need gofmt..."
+files_need_gofmt=()
+files=($(git diff --cached --name-only --diff-filter ACM | grep "\.go" | grep -v -e "^perf-query-api/vendor"))
+for file in "${files[@]}"; do
+    diff="$(git show ":${file}" | gofmt -s -d 2>&1)"
+    if [[ -n "$diff" ]]; then
+	files_need_gofmt+=("${file}")
+    fi
+done
+
+if [[ "${#files_need_gofmt[@]}" -ne 0 ]]; then
+  echo "${red}ERROR!"
+  echo "Some files have not been gofmt'd. To fix these errors, "
+  echo "copy and paste the following:"
+  echo "  gofmt -s -w ${files_need_gofmt[@]}"
+  exit_code=1
+else
+  echo "${green}OK"
+fi
+echo "${reset}"
+
+echo -ne "Checking files for golint errors..."
+golint_errors=()
+for d in $(go list -e ./perf-query-api/cmd/... | egrep -v '/(vendor)' | sed -e "s|^_${PROJECT_ROOT}/\?||"); do
+    out="$(golint "$d" 2>&1)"
+    if [[ -n "$out" ]]; then
+	golint_errors+=("$out")
+    fi
+done
+
+if [[ "${#golint_errors[@]}" -ne 0 ]]; then
+    echo "${red}ERROR!"
+    for err in "${golint_errors[@]}"; do
+	echo "$err"
+    done
+    echo
+    echo 'Some files have golint errors. Please fix and commit again.'
+    echo
+    exit_code=1
+else
+    echo "${green}OK"
+fi
+echo "${reset}"
+
+echo -ne "Checking perf-query-api compiles..."
+if ! OUT=$(make api 2>&1); then
+    echo
+    echo "${red}${OUT}"
+    exit_code=1
+else
+    echo "${green}OK"
+fi
+echo "${reset}"
+
+echo -ne "Checking dashboard for tslint errors..."
+if ! OUT=$(make dashboard-lint 2>&1); then
+    echo
+    echo "${red}${OUT}"
+    exit_code=1
+else
+    echo "${green}OK"
+fi
+echo "${reset}"
+
+echo -ne "Checking for tsfmt errors..."
+files_with_tsfmt_errors=()
+files=($(git diff --cached --name-only --diff-filter ACM | grep "\.ts" | grep -v -e "^dashboard/node_modules"))
+for file in "${files[@]}"; do
+    OUT="$(tsfmt --baseDir dashboard --verify "${file}" 2>&1)"
+    if [[ -n "$OUT" ]]; then
+	files_with_tsfmt_errors+=("${file}")
+    fi
+done
+
+if [[ "${#files_with_tsfmt_errors[@]}" -ne 0 ]]; then
+  echo "${red}ERROR!"
+  echo "Some files have not been tsfmt'd. To fix these errors, "
+  echo "copy and paste the following:"
+  echo "  tsfmt --baseDir dashboard -r ${files_with_tsfmt_errors[@]}"
+  exit_code=1
+else
+  echo "${green}OK"
+fi
+echo "${reset}"
+
+
+if [[ "${exit_code}" != 0 ]]; then
+  echo "${red}Aborting commit${reset}"
+fi
+exit ${exit_code}
